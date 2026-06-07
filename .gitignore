@@ -1,0 +1,22 @@
+# Secrets / local config
+.env
+
+# Generated export output
+/export/
+
+# Build artifacts
+ko-markdown-export.zip
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# OS
+.DS_Store
+
+# Reference material (not needed for the tool to run)
+/context/
