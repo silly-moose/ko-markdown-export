@@ -25,6 +25,14 @@ API_BASE = "https://app.knowledgeowl.com/api/head"
 PAGE_LIMIT = 100
 REQUEST_TIMEOUT = 30
 
+# When KO_SKIP_IMAGE_DOWNLOAD is truthy, rewrite_images skips the per-image network fetch and
+# emits the absolute KO image URL directly (alt text and all other attributes are untouched).
+# Set in load_config() once .env is loaded. The CI refresh enables this: only *.md is synced into
+# docs/ (images are dropped) and the KO file URLs aren't downloadable from CI anyway, so the
+# fetches are pure waste. Output is byte-identical to the existing "download failed -> absolute
+# URL" fallback, just without the wasted requests.
+SKIP_IMAGE_DOWNLOAD = False
+
 
 def die(msg):
     print(f"ERROR: {msg}", file=sys.stderr)
@@ -33,6 +41,8 @@ def die(msg):
 
 def load_config():
     load_dotenv()
+    global SKIP_IMAGE_DOWNLOAD
+    SKIP_IMAGE_DOWNLOAD = os.getenv("KO_SKIP_IMAGE_DOWNLOAD", "").strip().lower() in ("1", "true", "yes", "on")
     cfg = {
         "api_key": os.getenv("KO_API_KEY", "").strip(),
         "project_id": os.getenv("KO_PROJECT_ID", "").strip(),
@@ -226,12 +236,13 @@ def rewrite_images(html, session, images_dir, article_path, cache):
         else:
             return match.group(0)
 
-        filename = download_image(session, abs_url, images_dir, cache)
+        filename = None if SKIP_IMAGE_DOWNLOAD else download_image(session, abs_url, images_dir, cache)
         if filename:
             rel = os.path.relpath(images_dir / filename, article_path.parent)
             return f"{prefix}{rel}{suffix}"
-        # Download failed or was skipped — keep the tag but force an absolute URL
-        # so the Markdown doesn't render as a broken local path.
+        # Download skipped (KO_SKIP_IMAGE_DOWNLOAD) or failed — keep the tag but force an absolute
+        # URL so the Markdown doesn't render as a broken local path. Only `src` is rewritten; the
+        # alt text (and any other <img> attributes) are left untouched.
         return f"{prefix}{abs_url}{suffix}"
 
     return re.sub(
