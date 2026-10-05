@@ -25,6 +25,14 @@ API_BASE = "https://app.knowledgeowl.com/api/head"
 PAGE_LIMIT = 100
 REQUEST_TIMEOUT = 30
 
+# When KO_SKIP_IMAGE_DOWNLOAD is truthy, rewrite_images skips the per-image network fetch and
+# emits the absolute KO image URL directly (alt text and all other attributes are untouched).
+# Set in load_config() once .env is loaded. The CI refresh enables this: only *.md is synced into
+# docs/ (images are dropped) and the KO file URLs aren't downloadable from CI anyway, so the
+# fetches are pure waste. Output is byte-identical to the existing "download failed -> absolute
+# URL" fallback, just without the wasted requests.
+SKIP_IMAGE_DOWNLOAD = False
+
 
 def die(msg):
     print(f"ERROR: {msg}", file=sys.stderr)
@@ -33,6 +41,8 @@ def die(msg):
 
 def load_config():
     load_dotenv()
+    global SKIP_IMAGE_DOWNLOAD
+    SKIP_IMAGE_DOWNLOAD = os.getenv("KO_SKIP_IMAGE_DOWNLOAD", "").strip().lower() in ("1", "true", "yes", "on")
     cfg = {
         "api_key": os.getenv("KO_API_KEY", "").strip(),
         "project_id": os.getenv("KO_PROJECT_ID", "").strip(),
@@ -46,21 +56,45 @@ def load_config():
     return cfg
 
 
+RESOURCE_NAMES = {"article": "articles", "category": "categories"}
+
+
+def api_error_message(endpoint, message):
+    """Turn KO's error text into advice the reader can act on."""
+    if message.startswith("Invalid API key"):
+        return "KnowledgeOwl doesn't recognize this API key. Check KO_API_KEY in your .env file."
+    if message == "Not Authorized":
+        return (
+            f"This API key isn't allowed to read {RESOURCE_NAMES.get(endpoint, endpoint)} in this knowledge base. In KnowledgeOwl, "
+            "go to Account > API, edit the key, and give it Read on Article and Category for the "
+            "knowledge base in KO_PROJECT_ID. (An older legacy key needs GET instead.)"
+        )
+    if message == "Invalid Knowledge Base ID":
+        return "KnowledgeOwl doesn't recognize KO_PROJECT_ID. See the README for how to find your knowledge base ID."
+    return f"KnowledgeOwl returned an error for {endpoint}.json: {message[:500]}"
+
+
 def api_get(session, endpoint, body):
-    """Call a KO list endpoint with a JSON body. Raises on error with KO's message when available."""
+    """Call a KO list endpoint with a JSON body. Exits with a readable message on any error."""
     url = f"{API_BASE}/{endpoint}.json"
     resp = session.get(url, json=body, timeout=REQUEST_TIMEOUT)
-    if resp.status_code == 401:
-        die("API returned 401 Unauthorized. Check KO_API_KEY.")
-    if resp.status_code == 403:
-        die("API returned 403 Forbidden. The API key may lack GET permission for this object.")
     if not resp.ok:
         try:
             err = resp.json()
             die(f"API error {resp.status_code}: {err.get('message') or err}")
         except ValueError:
             die(f"API error {resp.status_code}: {resp.text[:500]}")
-    return resp.json()
+    result = resp.json()
+    # KO reports most errors (bad key, missing permission, wrong KB ID) as HTTP 200 with
+    # {"valid": false, "data": "<message>"}, so the status code alone doesn't catch them.
+    if result.get("valid") is False:
+        message = str(result.get("data") or "")
+        # The "Invalid API key" message repeats the key; never print it.
+        api_key = session.auth[0] if session.auth else ""
+        if api_key:
+            message = message.replace(api_key, "<your API key>")
+        die(api_error_message(endpoint, message))
+    return result
 
 
 def fetch_all(session, endpoint, query):
@@ -226,12 +260,13 @@ def rewrite_images(html, session, images_dir, article_path, cache):
         else:
             return match.group(0)
 
-        filename = download_image(session, abs_url, images_dir, cache)
+        filename = None if SKIP_IMAGE_DOWNLOAD else download_image(session, abs_url, images_dir, cache)
         if filename:
             rel = os.path.relpath(images_dir / filename, article_path.parent)
             return f"{prefix}{rel}{suffix}"
-        # Download failed or was skipped — keep the tag but force an absolute URL
-        # so the Markdown doesn't render as a broken local path.
+        # Download skipped (KO_SKIP_IMAGE_DOWNLOAD) or failed — keep the tag but force an absolute
+        # URL so the Markdown doesn't render as a broken local path. Only `src` is rewritten; the
+        # alt text (and any other <img> attributes) are left untouched.
         return f"{prefix}{abs_url}{suffix}"
 
     return re.sub(
@@ -387,6 +422,11 @@ def main():
     session.auth = (cfg["api_key"], "x")
     session.headers.update({"Content-Type": "application/json", "Accept": "application/json"})
 
+    # Images are fetched with a separate session that carries no credentials. Articles can embed
+    # images from any host, and the authenticated session would send the API key to every one of
+    # them. KO's own image URLs don't need the key, so nothing is lost.
+    image_session = requests.Session()
+
     output_root = cfg["output_dir"]
     if output_root.exists():
         print(f"Clearing existing output folder: {output_root}")
@@ -426,7 +466,7 @@ def main():
     for i, art in enumerate(regular_articles, 1):
         try:
             path = write_article(
-                art, cat_index, output_root, images_dir, session, cfg["kb_url"], image_cache, written_paths
+                art, cat_index, output_root, images_dir, image_session, cfg["kb_url"], image_cache, written_paths
             )
             written_paths.add(path)
             print(f"  [{i}/{len(regular_articles)}] {path.relative_to(output_root)}")
@@ -438,7 +478,7 @@ def main():
     for cat_id in cat_index:
         try:
             path = write_category_index(
-                cat_id, cat_index, cat_view_articles, output_root, images_dir, session, cfg["kb_url"], image_cache
+                cat_id, cat_index, cat_view_articles, output_root, images_dir, image_session, cfg["kb_url"], image_cache
             )
             if path:
                 cat_indexes_written += 1
