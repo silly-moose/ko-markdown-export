@@ -56,21 +56,45 @@ def load_config():
     return cfg
 
 
+RESOURCE_NAMES = {"article": "articles", "category": "categories"}
+
+
+def api_error_message(endpoint, message):
+    """Turn KO's error text into advice the reader can act on."""
+    if message.startswith("Invalid API key"):
+        return "KnowledgeOwl doesn't recognize this API key. Check KO_API_KEY in your .env file."
+    if message == "Not Authorized":
+        return (
+            f"This API key isn't allowed to read {RESOURCE_NAMES.get(endpoint, endpoint)} in this knowledge base. In KnowledgeOwl, "
+            "go to Account > API, edit the key, and give it Read on Article and Category for the "
+            "knowledge base in KO_PROJECT_ID. (An older legacy key needs GET instead.)"
+        )
+    if message == "Invalid Knowledge Base ID":
+        return "KnowledgeOwl doesn't recognize KO_PROJECT_ID. See the README for how to find your knowledge base ID."
+    return f"KnowledgeOwl returned an error for {endpoint}.json: {message[:500]}"
+
+
 def api_get(session, endpoint, body):
-    """Call a KO list endpoint with a JSON body. Raises on error with KO's message when available."""
+    """Call a KO list endpoint with a JSON body. Exits with a readable message on any error."""
     url = f"{API_BASE}/{endpoint}.json"
     resp = session.get(url, json=body, timeout=REQUEST_TIMEOUT)
-    if resp.status_code == 401:
-        die("API returned 401 Unauthorized. Check KO_API_KEY.")
-    if resp.status_code == 403:
-        die("API returned 403 Forbidden. The API key may lack GET permission for this object.")
     if not resp.ok:
         try:
             err = resp.json()
             die(f"API error {resp.status_code}: {err.get('message') or err}")
         except ValueError:
             die(f"API error {resp.status_code}: {resp.text[:500]}")
-    return resp.json()
+    result = resp.json()
+    # KO reports most errors (bad key, missing permission, wrong KB ID) as HTTP 200 with
+    # {"valid": false, "data": "<message>"}, so the status code alone doesn't catch them.
+    if result.get("valid") is False:
+        message = str(result.get("data") or "")
+        # The "Invalid API key" message repeats the key; never print it.
+        api_key = session.auth[0] if session.auth else ""
+        if api_key:
+            message = message.replace(api_key, "<your API key>")
+        die(api_error_message(endpoint, message))
+    return result
 
 
 def fetch_all(session, endpoint, query):
@@ -398,6 +422,11 @@ def main():
     session.auth = (cfg["api_key"], "x")
     session.headers.update({"Content-Type": "application/json", "Accept": "application/json"})
 
+    # Images are fetched with a separate session that carries no credentials. Articles can embed
+    # images from any host, and the authenticated session would send the API key to every one of
+    # them. KO's own image URLs don't need the key, so nothing is lost.
+    image_session = requests.Session()
+
     output_root = cfg["output_dir"]
     if output_root.exists():
         print(f"Clearing existing output folder: {output_root}")
@@ -437,7 +466,7 @@ def main():
     for i, art in enumerate(regular_articles, 1):
         try:
             path = write_article(
-                art, cat_index, output_root, images_dir, session, cfg["kb_url"], image_cache, written_paths
+                art, cat_index, output_root, images_dir, image_session, cfg["kb_url"], image_cache, written_paths
             )
             written_paths.add(path)
             print(f"  [{i}/{len(regular_articles)}] {path.relative_to(output_root)}")
@@ -449,7 +478,7 @@ def main():
     for cat_id in cat_index:
         try:
             path = write_category_index(
-                cat_id, cat_index, cat_view_articles, output_root, images_dir, session, cfg["kb_url"], image_cache
+                cat_id, cat_index, cat_view_articles, output_root, images_dir, image_session, cfg["kb_url"], image_cache
             )
             if path:
                 cat_indexes_written += 1

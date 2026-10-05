@@ -9,7 +9,7 @@ Re-run any time you want a fresh snapshot.
 ## What you'll need
 
 - **Python 3.9 or newer.** Check with `python3 --version`. If you don't have it, install from [python.org](https://www.python.org/downloads/).
-- **A KnowledgeOwl API key** with GET permission. (Steps below.)
+- **A KnowledgeOwl API key** with Read permission on Article and Category. (Steps below.)
 - **Your knowledge base ID.** (Steps below.)
 - A terminal (Terminal on Mac, PowerShell on Windows).
 
@@ -36,12 +36,17 @@ If `python3` is not recognized on Windows, try `python` instead.
 
 ### 4. Get your KnowledgeOwl API key
 
+Only authors with **Full Admin** permissions can create API keys.
+
 1. Sign in to KnowledgeOwl.
 2. Go to **Account → API**.
-3. Click **+ Add New API Key**.
-4. Give it a purpose like "Markdown export".
-5. Under **Allowed actions**, select **GET** only. (No other permissions are needed.)
-6. Click **Add**. Copy the key that appears.
+3. Select **+ Add new API key**.
+4. Enter a **Key purpose** like "Markdown export".
+5. Under **Knowledge base access**, select the knowledge base you want to export.
+6. Check **Read** for **Article** and **Category**. Leave every other box unchecked, including everything under **Account-level access**.
+7. Select **Create**, then **Copy**. Save the key somewhere safe: KnowledgeOwl only shows it once.
+
+An older (legacy) key with GET permission also works, but a new key limited to Read on Article and Category is safer. For more on API keys, see [API keys](https://support.knowledgeowl.com/help/api-keys) in the KnowledgeOwl support docs.
 
 ### 5. Get your knowledge base ID
 
@@ -165,7 +170,7 @@ How often to re-run is up to you. A weekly or monthly cadence works well for mos
 - **Category-level content** — category descriptions, plus the body of any Topic Display or Custom Content category — written as `_index.md` inside each category's folder.
 - Folder structure mirroring your category hierarchy.
 - Article body converted from HTML to Markdown.
-- Images downloaded to a local `images/` folder and linked from the articles.
+- Images downloaded to a local `images/` folder and linked from the articles. Image downloads never include your API key.
 - Frontmatter with title, category path, KB article URL, created/modified dates, meta description, and article ID.
 
 ## What's not included (by design)
@@ -178,15 +183,17 @@ How often to re-run is up to you. A weekly or monthly cadence works well for mos
 
 ## Troubleshooting
 
-**"401 Unauthorized"** — Your API key is wrong, or the key doesn't have GET permission. Check `Account → API` in KnowledgeOwl.
+**"KnowledgeOwl doesn't recognize this API key"**: The key in `KO_API_KEY` is wrong or was deleted. Copy it again, or create a new one (step 4).
 
-**"403 Forbidden"** — Your API key is missing the required GET permission. Edit the key and make sure GET is enabled.
+**"This API key isn't allowed to read..."**: The key is missing a permission, or it's limited to a different knowledge base. In KnowledgeOwl, go to **Account → API**, edit the key, and give it Read on Article and Category for the knowledge base in `KO_PROJECT_ID`.
 
-**Script can't find `python3`** — On Windows, try `python` instead. If neither works, install Python from [python.org](https://www.python.org/downloads/).
+**"KnowledgeOwl doesn't recognize KO_PROJECT_ID"**: The knowledge base ID is wrong. See step 5.
 
-**"No module named requests" (or similar)** — You skipped step 3. Run `python3 -m pip install -r requirements.txt`.
+**Script can't find `python3`**: On Windows, try `python` instead. If neither works, install Python from [python.org](https://www.python.org/downloads/).
 
-**Images missing from the export** — The script downloads every `<img>` src it finds, but only saves the file if the server responds with an actual image (not an HTML error page, sign-in page, etc.). Skipped images produce a warning in the terminal, and the image's original URL is preserved as a clickable link in the Markdown. A KB with lots of broken or legacy image references will show many skip warnings — this is normal and reflects stale references in the source articles, not a script problem.
+**"No module named requests" (or similar)**: You skipped step 3. Run `python3 -m pip install -r requirements.txt`.
+
+**Images missing from the export**: The script downloads every `<img>` src it finds, but only saves the file if the server responds with an actual image (not an HTML error page, sign-in page, etc.). Skipped images produce a warning in the terminal, and the image's original URL is preserved as a clickable link in the Markdown. A KB with lots of broken or legacy image references will show many skip warnings. This is normal and reflects stale references in the source articles, not a script problem.
 
 ---
 
