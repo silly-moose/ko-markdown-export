@@ -284,10 +284,25 @@ def yaml_escape(value):
     return f'"{s}"'
 
 
+def live_url(kb_url, url_hash):
+    """The live page for an article or category slug.
+
+    KnowledgeOwl serves pages at <domain>/help/<slug> by default. A knowledge base can use another
+    path instead: Silly Moose serves /docs/<slug>, and /docs/help/<slug> is a 404 there. So when
+    KO_KB_URL already includes the path (https://manual.sillymoosellc.com/docs), the slug goes
+    straight after it; when it's just the domain (https://support.knowledgeowl.com), /help/ is added.
+    """
+    if not kb_url or not url_hash:
+        return ""
+    if urlparse(kb_url).path.strip("/"):
+        return f"{kb_url}/{url_hash}"
+    return f"{kb_url}/help/{url_hash}"
+
+
 def build_frontmatter(article, cat_path, kb_url):
     title = article_title(article)
     url_hash = article.get("url_hash") or ""
-    article_url = f"{kb_url}/help/{url_hash}" if kb_url and url_hash else ""
+    article_url = live_url(kb_url, url_hash)
 
     lines = [
         "---",
@@ -364,7 +379,7 @@ def write_category_index(cat_id, cat_index, cat_view_articles, output_root, imag
     cat_path = category_path(cat_id, cat_index)
     name = entry["name"]
     url_hash = entry.get("url_hash") or ""
-    category_url = f"{kb_url}/help/{url_hash}" if kb_url and url_hash else ""
+    category_url = live_url(kb_url, url_hash)
 
     lines = [
         "---",

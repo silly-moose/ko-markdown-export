@@ -68,7 +68,7 @@ KO_KB_URL=https://your-kb.knowledgeowl.com
 KO_OUTPUT_DIR=./export
 ```
 
-- `KO_KB_URL` is optional. If you set it, each article's frontmatter will include a link back to the live article in your KB.
+- `KO_KB_URL` is optional. If you set it, each article's frontmatter will include a link back to the live article in your KB, as `<KO_KB_URL>/help/<slug>`, KnowledgeOwl's default. If your KB serves pages under another path, include it: `https://kb.example.com/docs` gives `https://kb.example.com/docs/<slug>`.
 - `KO_OUTPUT_DIR` is optional. It defaults to `./export` (a folder next to the script).
 
 ---
