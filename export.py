@@ -288,8 +288,8 @@ def live_url(kb_url, url_hash):
     """The live page for an article or category slug.
 
     KnowledgeOwl serves pages at <domain>/help/<slug> by default. A knowledge base can use another
-    path instead: Silly Moose serves /docs/<slug>, and /docs/help/<slug> is a 404 there. So when
-    KO_KB_URL already includes the path (https://manual.sillymoosellc.com/docs), the slug goes
+    path instead: one that serves /docs/<slug> returns a 404 for /docs/help/<slug>. So when
+    KO_KB_URL already includes the path (https://kb.example.com/docs), the slug goes
     straight after it; when it's just the domain (https://support.knowledgeowl.com), /help/ is added.
     """
     if not kb_url or not url_hash:
